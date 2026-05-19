@@ -24,31 +24,10 @@ namespace Slic3r {
 namespace GUI {
 
 #ifdef __linux__
-// Workaround for a WebKitGTK crash that happens when PrinterWebView loads pages built on
-// older Fluidd or Mainsail (Fluidd < 1.37.0, Mainsail < 2.16.1, and forks/firmware UIs
-// derived from them). Those bundles ship vue-resize, whose <resize-observer> component
-// implements container-resize detection by inserting
-//   <object aria-hidden="true" tabindex="-1" type="text/html" data="about:blank">
-// inside its <div class="resize-observer"> wrapper, then listens for 'resize' on the
-// object's contentDocument.defaultView. WebKitGTK segfaults somewhere in its handling
-// of that <object>; the simplest reliable fix is to never let it enter the DOM.
-//
-// We hook Node.prototype.appendChild and insertBefore, and swap the inserted child only
-// when BOTH conditions hold:
-//   1. The parent has class "resize-observer" (vue-resize's wrapper), AND
-//   2. The child is an <object> matching vue-resize's exact attribute signature.
-// Any other appendChild / insertBefore call passes through unchanged, so unrelated
-// <object> use on the page (PDF embeds, plugins, etc.) is unaffected.
-//
-// The swap inserts a hidden <div> in place of the <object>. The shim exposes a synthetic
-// contentDocument.defaultView (another <div>, which inherits EventTarget); a
-// ResizeObserver on the parent forwards resize notifications to that fake defaultView,
-// so vue-resize's addResizeHandlers keeps receiving 'resize' events as expected. A
-// synthetic 'load' event is dispatched on the shim after insertion so vue-resize wires
-// up its handlers exactly as it would have on a real <object>.
-//
-// Credit: workaround approach by @VittC -- see
-// https://github.com/OrcaSlicer/OrcaSlicer/issues/7210#issuecomment-4479760201
+// Workaround for #7210: WebKitGTK crashes on vue-resize's hidden <object> probe used by
+// older Fluidd/Mainsail pages. Swap that <object> for a <div> shim at appendChild time
+// and bridge resize events through a fake contentDocument.defaultView so vue-resize keeps
+// working. Workaround proposed by @VittC.
 static void inject_vue_resize_workaround(wxWebView *webView)
 {
     webView->AddUserScript(
@@ -69,6 +48,12 @@ static void inject_vue_resize_workaround(wxWebView *webView)
         "    shim.setAttribute('tabindex', '-1');"
         "    shim.style.display = 'none';"
         "    var fakeWin = document.createElement('div');"
+        "    var ro = null;"
+        "    var origRemoveEL = fakeWin.removeEventListener.bind(fakeWin);"
+        "    fakeWin.removeEventListener = function(type, fn, opts) {"
+        "      origRemoveEL(type, fn, opts);"
+        "      if (type === 'resize' && ro) { ro.disconnect(); ro = null; }"
+        "    };"
         "    Object.defineProperty(shim, 'contentDocument', {"
         "      configurable: true,"
         "      get: function() { return { defaultView: fakeWin }; }"
@@ -80,7 +65,7 @@ static void inject_vue_resize_workaround(wxWebView *webView)
         "    if (typeof orig.onload === 'function') { shim.onload = orig.onload; }"
         "    queueMicrotask(function() {"
         "      if (parentForRO && typeof ResizeObserver !== 'undefined') {"
-        "        var ro = new ResizeObserver(function() {"
+        "        ro = new ResizeObserver(function() {"
         "          fakeWin.dispatchEvent(new Event('resize'));"
         "        });"
         "        ro.observe(parentForRO);"
