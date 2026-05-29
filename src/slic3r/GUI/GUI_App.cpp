@@ -27,6 +27,7 @@
 #include <iterator>
 #include <exception>
 #include <cstdlib>
+#include <future>
 #include <regex>
 #include <thread>
 #include <string_view>
@@ -4875,6 +4876,13 @@ void GUI_App::on_http_error(wxCommandEvent &evt)
         return;
     }
 
+    // 409 Conflict is expected during normal cloud sync (preset already exists on cloud).
+    // Treat it as a no-op - the caller handles conflict resolution via sync_push.
+    if (status == 409) {
+        BOOST_LOG_TRIVIAL(info) << "Http 409 Conflict — preset already exists on cloud, no dialog needed.";
+        return;
+    }
+
     static bool m_is_error_shown = false;
     // Show general error notification for Orca Cloud API failures (not Bambu)
     if (provider == ORCA_CLOUD_PROVIDER && status >= 400 && code != HttpErrorVersionLimited) {
@@ -5840,7 +5848,7 @@ void  GUI_App::push_notification(const MachineObject* obj, wxString msg, wxStrin
     }
 }
 
-void GUI_App::reload_settings()
+void GUI_App::reload_settings(std::optional<std::weak_ptr<int>> cancel_token)
 {
     if (preset_bundle && m_agent) {
         // Load user's personal presets
@@ -5917,10 +5925,42 @@ void GUI_App::reload_settings()
             if (plater_)
                 plater_->sidebar().update_all_preset_comboboxes();
         };
-        if (is_main_thread_active())
+        if (is_main_thread_active()) {
             refresh_synced_ui();
-        else
-            CallAfter(refresh_synced_ui);
+        } else {
+            // Block the background sync thread until the main thread has applied the
+            // cloud-sourced setting_ids back into local presets.  Without this wait,
+            // the periodic push loop starts immediately with stale sync_info="create"
+            // / empty setting_ids and re-uploads every preset, getting a 409 from the
+            // cloud for each one (it already has them from the pull that just finished).
+            auto p = std::make_shared<std::promise<void>>();
+            std::future<void> fut = p->get_future();
+            CallAfter([refresh_synced_ui = std::move(refresh_synced_ui), p]() mutable {
+                try {
+                    refresh_synced_ui();
+                } catch (const std::exception& e) {
+                    BOOST_LOG_TRIVIAL(error) << "reload_settings: refresh_synced_ui threw: " << e.what();
+                } catch (...) {
+                    BOOST_LOG_TRIVIAL(error) << "reload_settings: refresh_synced_ui threw unknown exception";
+                }
+                p->set_value(); // always unblock the sync thread
+            });
+            // Poll every 100 ms so we can bail out on cancellation (app close)
+            // without blocking stop_sync_user_preset()'s join() for up to 10 s.
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (fut.wait_for(std::chrono::milliseconds(100)) == std::future_status::timeout) {
+                if (cancel_token.has_value() && cancel_token->expired()) {
+                    BOOST_LOG_TRIVIAL(warning) << "reload_settings: cancelled while waiting for UI "
+                                                  "preset update — sync loop may see stale setting_ids";
+                    break;
+                }
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    BOOST_LOG_TRIVIAL(warning) << "reload_settings: timed out waiting for UI "
+                                                  "preset update — sync loop may see stale setting_ids";
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -6699,7 +6739,7 @@ void GUI_App::start_sync_user_preset(bool with_progress_dlg)
             finishFn(ret == 0);
 
             if (ret == 0 && m_agent && !t.expired())
-                reload_settings();
+                reload_settings(t);
 
             // For orca specific syncing
             auto orca_agent = std::dynamic_pointer_cast<OrcaCloudServiceAgent>(m_agent->get_cloud_agent());

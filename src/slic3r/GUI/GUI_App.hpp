@@ -2,6 +2,7 @@
 #define slic3r_GUI_App_hpp_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include "ImGuiWrapper.hpp"
 #include "ConfigWizard.hpp"
@@ -519,7 +520,7 @@ public:
     std::string     format_IP(const std::string& ip);
     void            show_dialog(wxString msg);
     void            push_notification(const MachineObject* obj, wxString msg, wxString title = wxEmptyString, UserNotificationStyle style = UserNotificationStyle::UNS_NORMAL);
-    void            reload_settings();
+    void            reload_settings(std::optional<std::weak_ptr<int>> cancel_token = std::nullopt);
     void            remove_user_presets();
 
     bool            maybe_migrate_user_presets_on_login();
