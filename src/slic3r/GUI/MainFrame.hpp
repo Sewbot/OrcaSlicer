@@ -206,6 +206,19 @@ protected:
 
 #ifdef __WXMSW__
     WXLRESULT MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam) override;
+
+    // Cached values for WM_NCHITTEST to avoid 5+ system calls per mouse event at
+    // high polling rates (e.g. 1000 Hz mice cause visible window drag lag without this).
+    // Refreshed in WM_WINDOWPOSCHANGED; invalidated on DPI change.
+    struct {
+        LONG client_origin_x      = 0;
+        LONG client_origin_y      = 0;  // window_top + 1 (1-px top resize strip, see WM_NCCALCSIZE)
+        LONG topbar_screen_bottom = 0;
+        int  client_width         = 0;
+        int  topbar_height        = 0;
+        RECT border               = {};  // positive NC border thickness from AdjustWindowRectEx
+        bool valid                = false;
+    } m_nchit_cache;
 #endif
 
 public:

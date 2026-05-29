@@ -71,6 +71,7 @@
 #include <dbt.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <windowsx.h>  // GET_X_LPARAM / GET_Y_LPARAM
 #endif // _WIN32
 
 #ifdef __WXGTK__
@@ -906,27 +907,68 @@ WXLRESULT MainFrame::MSWWindowProc(WXUINT nMsg, WXWPARAM wParam, WXLPARAM lParam
             return HTCAPTION;
         }
 
-        // Allow resizing from top of the title bar
-        wxPoint mouse_pos = ::wxGetMousePosition();
-        if (m_topbar->GetScreenRect().GetBottom() >= mouse_pos.y) {
-            RECT borderThickness;
-            SetRectEmpty(&borderThickness);
-            AdjustWindowRectEx(&borderThickness, GetWindowLongPtr(hWnd, GWL_STYLE) & ~WS_CAPTION, FALSE, NULL);
-            borderThickness.left *= -1;
-            borderThickness.top *= -1;
-            wxPoint client_pos = this->ScreenToClient(mouse_pos);
+        if (!m_nchit_cache.valid || !m_topbar)
+            break;
 
-            bool on_top_border = client_pos.y <= borderThickness.top;
+        // lParam already encodes the cursor screen position
+        // All other values come from the cache updated in WM_WINDOWPOSCHANGED/WM_DPICHANGED,
+        // so this handler makes zero system calls at 1000 Hz polling rates.
+        LONG screen_x = GET_X_LPARAM(lParam);
+        LONG screen_y = GET_Y_LPARAM(lParam);
 
-            // And to allow diagonally resizing, we check if mouse is at window corner
-            if (client_pos.x <= borderThickness.left) {
-                return on_top_border ? HTTOPLEFT : HTLEFT;
-            } else if (client_pos.x >= GetClientSize().x - borderThickness.right) {
-                return on_top_border ? HTTOPRIGHT : HTRIGHT;
-            }
+        if (screen_y > m_nchit_cache.topbar_screen_bottom)
+            break;  // below topbar: let default proc handle it
 
-            return on_top_border ? HTTOP : HTCAPTION;
+        LONG client_x = screen_x - m_nchit_cache.client_origin_x;
+        LONG client_y = screen_y - m_nchit_cache.client_origin_y;
+
+        bool on_top_border = client_y <= m_nchit_cache.border.top;
+
+        // Check window corners for diagonal resize
+        if (client_x <= m_nchit_cache.border.left) {
+            return on_top_border ? HTTOPLEFT : HTLEFT;
+        } else if (client_x >= m_nchit_cache.client_width - m_nchit_cache.border.right) {
+            return on_top_border ? HTTOPRIGHT : HTRIGHT;
         }
+        return on_top_border ? HTTOP : HTCAPTION;
+    }
+
+    case WM_WINDOWPOSCHANGED: {
+        const auto* wp = reinterpret_cast<const WINDOWPOS*>(lParam);
+        if (m_topbar) {
+            if (!m_nchit_cache.valid) {
+                // First-time init (or post-DPI-change): compute border thickness and topbar height.
+                // WINDOWPOS x/y always hold the current window position even when SWP_NOMOVE is set.
+                SetRectEmpty(&m_nchit_cache.border);
+                AdjustWindowRectEx(&m_nchit_cache.border,
+                    GetWindowLongPtr(hWnd, GWL_STYLE) & ~WS_CAPTION, FALSE, NULL);
+                m_nchit_cache.border.left *= -1;
+                m_nchit_cache.border.top  *= -1;
+                m_nchit_cache.topbar_height = m_topbar->GetSize().y;
+                m_nchit_cache.client_width  = GetClientSize().x;
+                m_nchit_cache.client_origin_x = wp->x + m_nchit_cache.border.left;
+                m_nchit_cache.client_origin_y = wp->y + 1;
+                m_nchit_cache.topbar_screen_bottom = m_nchit_cache.client_origin_y + m_nchit_cache.topbar_height;
+                m_nchit_cache.valid = true;
+            }
+            if (!(wp->flags & SWP_NOMOVE)) {
+                // client_origin_y = window_top + 1  (the 1-px top resize strip added in WM_NCCALCSIZE)
+                m_nchit_cache.client_origin_x = wp->x + m_nchit_cache.border.left;
+                m_nchit_cache.client_origin_y = wp->y + 1;
+                m_nchit_cache.topbar_screen_bottom = m_nchit_cache.client_origin_y + m_nchit_cache.topbar_height;
+            }
+            if (!(wp->flags & SWP_NOSIZE)) {
+                m_nchit_cache.topbar_height = m_topbar->GetSize().y;
+                m_nchit_cache.client_width  = GetClientSize().x;
+                m_nchit_cache.topbar_screen_bottom = m_nchit_cache.client_origin_y + m_nchit_cache.topbar_height;
+            }
+        }
+        break;
+    }
+
+    case WM_DPICHANGED: {
+        // Border thickness and topbar height are DPI-dependent; force recompute.
+        m_nchit_cache.valid = false;
         break;
     }
 
