@@ -18,6 +18,42 @@ nlohmann::json JsonRpcDispatcher::make_error(const nlohmann::json& id, int code,
              {"error", { {"code", code}, {"message", msg} }} };
 }
 
+namespace {
+std::optional<std::string> opt_str(const nlohmann::json& p, const char* key) {
+    if (p.is_object() && p.contains(key) && p.at(key).is_string())
+        return p.at(key).get<std::string>();
+    return std::nullopt;
+}
+
+Target parse_target(const nlohmann::json& tj) {
+    Target t;
+    if (!tj.is_object()) return t;
+    t.id    = opt_str(tj, "id");
+    t.path  = opt_str(tj, "path");
+    t.name  = opt_str(tj, "name");
+    t.klass = opt_str(tj, "class");
+    t.label = opt_str(tj, "label");
+    t.value = opt_str(tj, "value");
+    if (auto b = opt_str(tj, "backend"))
+        t.backend = (*b == "imgui") ? BackendKind::ImGui : BackendKind::Wx;
+    return t;
+}
+
+DumpOptions parse_dump_options(const nlohmann::json& p) {
+    DumpOptions o;
+    if (p.is_object()) {
+        if (p.contains("root"))         o.root = opt_str(p, "root");
+        if (p.contains("max_depth") && p.at("max_depth").is_number_integer())
+            o.max_depth = p.at("max_depth").get<int>();
+        if (p.contains("visible_only") && p.at("visible_only").is_boolean())
+            o.visible_only = p.at("visible_only").get<bool>();
+        if (p.contains("include_imgui") && p.at("include_imgui").is_boolean())
+            o.include_imgui = p.at("include_imgui").get<bool>();
+    }
+    return o;
+}
+} // namespace
+
 nlohmann::json JsonRpcDispatcher::m_version(const nlohmann::json&) {
     return { {"version", kAutomationVersion},
              {"protocol", "2.0"},
@@ -68,10 +104,36 @@ std::string JsonRpcDispatcher::handle_request(const std::string& body) {
     return dispatch(req).dump();
 }
 
-// --- method handlers implemented in Tasks 7-10 (stubs throw for now) ---
-nlohmann::json JsonRpcDispatcher::m_tree_dump(const nlohmann::json&)            { throw AutomationError(kMethodNotFound, "not implemented"); }
-nlohmann::json JsonRpcDispatcher::m_tree_find(const nlohmann::json&)            { throw AutomationError(kMethodNotFound, "not implemented"); }
-nlohmann::json JsonRpcDispatcher::m_widget_get(const nlohmann::json&)           { throw AutomationError(kMethodNotFound, "not implemented"); }
+// --- method handlers implemented in Tasks 7-10 (remaining stubs throw for now) ---
+nlohmann::json JsonRpcDispatcher::m_tree_dump(const nlohmann::json& params) {
+    m_backend.refresh_ui();
+    const UiNode root = m_backend.dump_tree(parse_dump_options(params));
+    return node_to_json(root, /*include_children*/ true);
+}
+
+nlohmann::json JsonRpcDispatcher::m_tree_find(const nlohmann::json& params) {
+    m_backend.refresh_ui();
+    const UiNode root = m_backend.dump_tree(DumpOptions{});
+    const Target target =
+        parse_target(params.is_object() ? params : nlohmann::json::object());
+    nlohmann::json arr = nlohmann::json::array();
+    for (const UiNode* n : find_matches(root, target))
+        arr.push_back(node_to_json(*n, /*include_children*/ false));
+    return arr;
+}
+
+nlohmann::json JsonRpcDispatcher::m_widget_get(const nlohmann::json& params) {
+    if (!params.is_object() || !params.contains("target"))
+        throw AutomationError(kInvalidParams, "widget.get requires 'target'");
+    m_backend.refresh_ui();
+    const UiNode root = m_backend.dump_tree(DumpOptions{});
+    int count = 0;
+    const UiNode* node = resolve_unique(root, parse_target(params.at("target")), count);
+    if (count == 0) throw AutomationError(kErrNotFound, "target not found");
+    if (count > 1)  throw AutomationError(kErrNotFound, "target is ambiguous");
+    return node_to_json(*node, /*include_children*/ true);
+}
+
 nlohmann::json JsonRpcDispatcher::m_input_click(const nlohmann::json&)          { throw AutomationError(kMethodNotFound, "not implemented"); }
 nlohmann::json JsonRpcDispatcher::m_input_type(const nlohmann::json&)           { throw AutomationError(kMethodNotFound, "not implemented"); }
 nlohmann::json JsonRpcDispatcher::m_input_key(const nlohmann::json&)            { throw AutomationError(kMethodNotFound, "not implemented"); }

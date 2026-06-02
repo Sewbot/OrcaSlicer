@@ -42,3 +42,49 @@ TEST_CASE("missing method field -> invalid request", "[automation][rpc]") {
     const json resp = d.dispatch(req);
     CHECK(resp.at("error").at("code") == kInvalidRequest);
 }
+
+namespace {
+UiNode dispatcher_tree() {
+    UiNode root; root.klass = "MainFrame"; root.path = "MainFrame";
+    UiNode b; b.id = "btn_slice"; b.klass = "Button"; b.label = "Slice plate";
+    b.path = "MainFrame/Button[0]"; b.rect = {10,20,100,30};
+    UiNode e; e.id = "btn_export"; e.klass = "Button"; e.label = "Export";
+    e.path = "MainFrame/Button[1]"; e.enabled = false;
+    root.children = {b, e};
+    return root;
+}
+} // namespace
+
+TEST_CASE("tree.dump returns the serialized tree", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",1},{"method","tree.dump"}});
+    const json& result = resp.at("result");
+    CHECK(result.at("class") == "MainFrame");
+    CHECK(result.at("children").size() == 2);
+    CHECK(mock.refresh_count == 1); // refreshed before reading
+}
+
+TEST_CASE("tree.find returns matching nodes", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",2},{"method","tree.find"},
+                                  {"params",{{"class","Button"}}}});
+    CHECK(resp.at("result").size() == 2);
+}
+
+TEST_CASE("widget.get returns a single node by id", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",3},{"method","widget.get"},
+                                  {"params",{{"target",{{"id","btn_slice"}}}}}});
+    CHECK(resp.at("result").at("id") == "btn_slice");
+}
+
+TEST_CASE("widget.get not found -> 1001", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",4},{"method","widget.get"},
+                                  {"params",{{"target",{{"id","nope"}}}}}});
+    CHECK(resp.at("error").at("code") == kErrNotFound);
+}
