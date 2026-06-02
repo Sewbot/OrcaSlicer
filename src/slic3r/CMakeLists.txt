@@ -239,6 +239,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Automation/JsonRpcDispatcher.hpp
     GUI/Automation/AutomationServer.cpp
     GUI/Automation/AutomationServer.hpp
+    GUI/Automation/AutomationRegistry.cpp
+    GUI/Automation/AutomationRegistry.hpp
     GUI/I18N.cpp
     GUI/I18N.hpp
     GUI/DragDropPanel.cpp
