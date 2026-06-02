@@ -49,6 +49,11 @@ private:
     nlohmann::json m_screenshot_window(const nlohmann::json& params);
     nlohmann::json m_screenshot_viewport3d(const nlohmann::json& params);
 
+    // Resolve a unique, actionable (enabled+visible) node from params["target"].
+    // Throws kErrNotFound (missing/ambiguous) or kErrNotActionable (disabled/hidden).
+    // `tree_out` keeps the snapshot alive; the returned node is a stable copy.
+    const UiNode resolve_actionable(const nlohmann::json& params, UiNode& tree_out);
+
     IUiBackend& m_backend;
 };
 

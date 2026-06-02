@@ -88,3 +88,57 @@ TEST_CASE("widget.get not found -> 1001", "[automation][rpc]") {
                                   {"params",{{"target",{{"id","nope"}}}}}});
     CHECK(resp.at("error").at("code") == kErrNotFound);
 }
+
+TEST_CASE("input.click resolves target and clicks it", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",1},{"method","input.click"},
+                                  {"params",{{"target",{{"id","btn_slice"}}}}}});
+    CHECK(resp.at("result").at("ok") == true);
+    REQUIRE(mock.clicked_ids.size() == 1);
+    CHECK(mock.clicked_ids[0] == "btn_slice");
+    CHECK(mock.click_buttons[0] == MouseButton::Left);
+}
+
+TEST_CASE("input.click on disabled widget -> 1002", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",2},{"method","input.click"},
+                                  {"params",{{"target",{{"id","btn_export"}}}}}});
+    CHECK(resp.at("error").at("code") == kErrNotActionable);
+    CHECK(mock.clicked_ids.empty());
+}
+
+TEST_CASE("input.type with target clicks to focus then types", "[automation][rpc]") {
+    MockUiBackend mock; mock.tree = dispatcher_tree();
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",3},{"method","input.type"},
+                                  {"params",{{"target",{{"id","btn_slice"}}},{"text","hello"}}}});
+    CHECK(resp.at("result").at("ok") == true);
+    CHECK(mock.clicked_ids.size() == 1);          // focused first
+    REQUIRE(mock.typed_text.size() == 1);
+    CHECK(mock.typed_text[0] == "hello");
+}
+
+TEST_CASE("input.key parses 'ctrl+s' string form", "[automation][rpc]") {
+    MockUiBackend mock;
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",4},{"method","input.key"},
+                                  {"params",{{"keys","ctrl+s"}}}});
+    CHECK(resp.at("result").at("ok") == true);
+    REQUIRE(mock.sent_keys.size() == 1);
+    REQUIRE(mock.sent_keys[0].size() == 1);
+    CHECK(mock.sent_keys[0][0].key == "s");
+    REQUIRE(mock.sent_keys[0][0].modifiers.size() == 1);
+    CHECK(mock.sent_keys[0][0].modifiers[0] == KeyModifier::Ctrl);
+}
+
+TEST_CASE("input.key parses array form [\"ctrl\",\"s\"]", "[automation][rpc]") {
+    MockUiBackend mock;
+    JsonRpcDispatcher d(mock);
+    const json resp = d.dispatch({{"jsonrpc","2.0"},{"id",5},{"method","input.key"},
+                                  {"params",{{"keys", json::array({"ctrl","s"})}}}});
+    CHECK(resp.at("result").at("ok") == true);
+    REQUIRE(mock.sent_keys[0][0].modifiers.size() == 1);
+    CHECK(mock.sent_keys[0][0].key == "s");
+}
