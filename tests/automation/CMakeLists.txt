@@ -4,9 +4,11 @@ add_executable(${_TEST_NAME}_tests
     automation_tests.cpp
     test_serializer.cpp
     test_locator.cpp
+    test_dispatcher.cpp
     MockUiBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/slic3r/GUI/Automation/WidgetSerializer.cpp
     ${CMAKE_SOURCE_DIR}/src/slic3r/GUI/Automation/Locator.cpp
+    ${CMAKE_SOURCE_DIR}/src/slic3r/GUI/Automation/JsonRpcDispatcher.cpp
 )
 target_link_libraries(${_TEST_NAME}_tests test_common Catch2::Catch2WithMain nlohmann_json)
 # The nlohmann_json INTERFACE target only exposes deps_src/nlohmann on the include
