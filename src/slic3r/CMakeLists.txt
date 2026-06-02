@@ -230,6 +230,15 @@ set(SLIC3R_GUI_SOURCES
     GUI/HMSPanel.hpp
     GUI/HttpServer.cpp
     GUI/HttpServer.hpp
+    GUI/Automation/IUiBackend.hpp
+    GUI/Automation/WidgetSerializer.cpp
+    GUI/Automation/WidgetSerializer.hpp
+    GUI/Automation/Locator.cpp
+    GUI/Automation/Locator.hpp
+    GUI/Automation/JsonRpcDispatcher.cpp
+    GUI/Automation/JsonRpcDispatcher.hpp
+    GUI/Automation/AutomationServer.cpp
+    GUI/Automation/AutomationServer.hpp
     GUI/I18N.cpp
     GUI/I18N.hpp
     GUI/DragDropPanel.cpp
