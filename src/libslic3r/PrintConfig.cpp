@@ -10791,6 +10791,19 @@ CLIMiscConfigDef::CLIMiscConfigDef()
     def->tooltip = L("If enabled, this slicing will be considered using timelapse.");
     def->set_default_value(new ConfigOptionBool(false));
 
+    def = this->add("automation_server", coBool);
+    def->label = L("Enable UI automation server");
+    def->tooltip = L("Start a localhost JSON-RPC server that lets external scripts "
+                     "drive and observe the GUI. For testing/automation only.");
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("automation_server_port", coInt);
+    def->label = L("UI automation server port");
+    def->tooltip = L("TCP port for the UI automation server (bound to 127.0.0.1).");
+    def->min = 1;
+    def->cli_params = "port";
+    def->set_default_value(new ConfigOptionInt(13619));
+
 #if (defined(_MSC_VER) || defined(__MINGW32__)) && defined(SLIC3R_GUI)
     /*def = this->add("sw_renderer", coBool);
     def->label = L("Render with a software renderer");

@@ -1339,6 +1339,16 @@ int CLI::run(int argc, char **argv)
         //BBS: remove GCodeViewer as separate APP logic
         //params.start_as_gcodeviewer = start_as_gcodeviewer;
 
+        // UI automation server (opt-in). --automation-server enables it;
+        // --automation-server-port overrides the default 13619.
+        ConfigOptionBool* automation_server_option = m_config.option<ConfigOptionBool>("automation_server");
+        if (automation_server_option && automation_server_option->value) {
+            ConfigOptionInt* automation_port_option = m_config.option<ConfigOptionInt>("automation_server_port");
+            int port = (automation_port_option && automation_port_option->value > 0) ? automation_port_option->value : 13619;
+            params.automation_port = port;
+            BOOST_LOG_TRIVIAL(warning) << "UI automation server requested on port " << params.automation_port;
+        }
+
         BOOST_LOG_TRIVIAL(info) << "begin to launch OrcaSlicer GUI soon";
         return Slic3r::GUI::GUI_Run(params);
 #else // SLIC3R_GUI
