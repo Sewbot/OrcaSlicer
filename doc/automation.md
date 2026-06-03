@@ -110,7 +110,7 @@ Returns server identity and the list of supported methods. Takes no parameters.
   "protocol": "2.0",
   "capabilities": [
     "tree.dump", "tree.find", "widget.get", "input.click", "input.type",
-    "input.key", "sync.wait_for", "app.state", "screenshot.window"
+    "input.key", "sync.wait_for", "app.state", "screenshot.window", "file.open"
   ]
 }
 ```
@@ -300,6 +300,35 @@ method reads from the screen.)
   after a slice. There is no separate offscreen 3D-render method — the window
   capture already includes whatever the GL canvas is showing.
 
+### `file.open`
+
+Load one or more files into the **already-running** instance at runtime, by calling
+`Plater::load_files(...)` directly on the GUI thread. This is the supported way to add
+or swap a model without relaunching the process. Loading is **synchronous**: when the
+call returns `ok: true`, `app.state().project_loaded` is already `true` (no polling
+race).
+
+**Params:**
+
+| Param | Type | Required | Meaning |
+|---|---|---|---|
+| `paths` | string or array of strings | yes | One or more **absolute** file paths. A bare string is accepted and treated as a one-element list. Paths are read from the **host (server) filesystem** — client and server are localhost-only. |
+
+`.3mf` files are routed as projects and meshes as models automatically, based on file
+content (the same default strategy as drag-drop); there is no `as_project` flag in v1.
+
+**Result:** `{ "ok": true, "loaded": <int> }`, where `loaded` is the number of objects
+added to the scene (`load_files(...).size()`).
+
+**Errors:**
+
+- `-32602` (invalid params) — `paths` is missing, is not a string/array, contains a
+  non-string entry, or yields no non-empty path.
+- `1007` (load failed) — `load_files` returned empty or threw (file not found, parse
+  error, or unsupported format).
+- `1004` (GUI busy) — the GUI-thread marshal timed out. An extremely large model can
+  exceed the marshal timeout and surface here; documented, not mitigated in v1.
+
 ---
 
 ## 5. Unified node shape
@@ -393,6 +422,7 @@ Application-specific codes:
 | `1004` | GUI thread busy / timeout — a backend call could not be marshaled onto the GUI thread in time (wedged GUI). |
 | `1005` | Screenshot failed. |
 | `1006` | Disabled. |
+| `1007` | Load failed — `file.open`'s `load_files` returned empty or threw (not found, parse error, unsupported format). |
 
 ---
 
