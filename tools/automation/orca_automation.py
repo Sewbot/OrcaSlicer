@@ -81,6 +81,16 @@ class OrcaClient:
         # keys: "ctrl+s" or ["ctrl", "s"]
         return self._call("input.key", {"keys": keys})
 
+    def open(self, paths) -> dict:
+        """Load one or more files into the running instance at runtime.
+
+        `paths` is a single absolute path string or a list of them. Paths are read
+        from the host filesystem by the server (localhost-only). Returns
+        {"ok": True, "loaded": <count>}. Raises OrcaError 1007 on load failure."""
+        if isinstance(paths, str):
+            paths = [paths]
+        return self._call("file.open", {"paths": list(paths)})
+
     def wait_for(self, target: dict, state: str = "visible",
                  value: Optional[str] = None, timeout_ms: int = 5000,
                  poll_ms: int = 100) -> dict:
