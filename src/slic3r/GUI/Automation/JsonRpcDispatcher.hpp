@@ -17,6 +17,7 @@ constexpr int kErrWaitTimeout     = 1003;
 constexpr int kErrGuiBusy         = 1004; // GUI thread timeout
 constexpr int kErrScreenshotFail  = 1005;
 constexpr int kErrDisabled        = 1006;
+constexpr int kErrLoadFailed      = 1007; // file.open: load_files returned empty / threw
 
 constexpr const char* kProtocolVersion = "2.0";
 constexpr const char* kAutomationVersion = "1.0.0";

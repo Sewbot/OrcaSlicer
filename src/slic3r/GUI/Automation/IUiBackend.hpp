@@ -95,6 +95,12 @@ public:
     // Screenshot. target == nullptr => main frame. Captured from the on-screen
     // composited framebuffer, so it includes the GL viewport and ImGui overlays.
     virtual PngImage screenshot_window(const UiNode* target) = 0;
+
+    // Load one or more files (absolute paths) into the running instance on the GUI
+    // thread. Returns the number of objects added to the scene (load_files(...).size()).
+    // Throws AutomationError(kErrLoadFailed) when nothing loads. Header stays wx-free:
+    // the concrete LoadStrategy is chosen inside WxUiBackend, not exposed here.
+    virtual int open_files(const std::vector<std::string>& paths) = 0;
 };
 
 }}} // namespace Slic3r::GUI::Automation
