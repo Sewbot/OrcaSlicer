@@ -91,6 +91,15 @@ class OrcaClient:
             paths = [paths]
         return self._call("file.open", {"paths": list(paths)})
 
+    def select_view(self, view) -> dict:
+        """Switch the main window to a top-level view/tab by name.
+
+        `view` is one of: "home", "prepare", "preview", "device",
+        "multi_device", "project", "calibration". Returns
+        {"ok": True, "view": <name>, "index": <int>}. Raises OrcaError 1001 if the
+        view name is unknown or not available in the current layout."""
+        return self._call("view.select", {"view": view})
+
     def wait_for(self, target: dict, state: str = "visible",
                  value: Optional[str] = None, timeout_ms: int = 5000,
                  poll_ms: int = 100) -> dict:

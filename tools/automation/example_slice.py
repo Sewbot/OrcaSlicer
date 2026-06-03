@@ -42,9 +42,10 @@ def main() -> int:
             print("ERROR: automation server did not start", file=sys.stderr)
             return 1
 
-        # Load the model into the already-running instance, then wait until the
-        # project reports loaded. file.open is synchronous, so project_loaded is
-        # already true on return; the wait is a belt-and-suspenders guard.
+        # Switch to the Prepare (3D editor) view first, then load the model into the
+        # already-running instance. file.open is synchronous, so project_loaded is
+        # already true on return; the wait below is a belt-and-suspenders guard.
+        orca.select_view("prepare")
         orca.open([args.model])
         deadline = time.time() + 30
         while time.time() < deadline:

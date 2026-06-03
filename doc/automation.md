@@ -95,7 +95,7 @@ when the request body cannot be parsed as JSON, the response `id` is `null`.
 
 ## 4. Methods
 
-There are 11 methods. Capabilities advertised by `automation.version` list the 10
+There are 12 methods. Capabilities advertised by `automation.version` list the 11
 callable feature methods (every method except `automation.version` itself).
 
 ### `automation.version`
@@ -110,7 +110,8 @@ Returns server identity and the list of supported methods. Takes no parameters.
   "protocol": "2.0",
   "capabilities": [
     "tree.dump", "tree.find", "widget.get", "input.click", "input.type",
-    "input.key", "sync.wait_for", "app.state", "screenshot.window", "file.open"
+    "input.key", "sync.wait_for", "app.state", "screenshot.window", "file.open",
+    "view.select"
   ]
 }
 ```
@@ -328,6 +329,30 @@ added to the scene (`load_files(...).size()`).
   error, or unsupported format).
 - `1004` (GUI busy) — the GUI-thread marshal timed out. An extremely large model can
   exceed the marshal timeout and surface here; documented, not mitigated in v1.
+
+### `view.select`
+
+Switch the main window to a top-level view/tab at runtime. Useful to put the UI in a
+known state before other actions — e.g. switch to **Prepare** before loading a model,
+or to **Preview** after slicing.
+
+**Params:**
+
+| Param | Type | Required | Meaning |
+|---|---|---|---|
+| `view` | string | yes | The target view. One of: `home`, `prepare` (3D editor), `preview` (sliced G-code), `device`, `multi_device`, `project`, `calibration`. |
+
+**Result:** `{ "ok": true, "view": <string>, "index": <int> }`, where `index` is the
+resulting tab index (it can vary with layout, since some tabs — e.g. `multi_device` —
+are only present in certain configurations).
+
+**Errors:**
+
+- `-32602` (invalid params) — `view` is missing, is not a string, or is empty.
+- `1001` (not found) — the view name is unknown, or that view is not available in the
+  current layout (for example `prepare`/`preview` in G-code-viewer mode, or
+  `multi_device` when multi-device is disabled).
+- `1004` (GUI busy) — the GUI-thread marshal timed out.
 
 ---
 
