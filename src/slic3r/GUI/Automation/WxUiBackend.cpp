@@ -303,4 +303,26 @@ PngImage WxUiBackend::screenshot_window(const UiNode* target) {
     });
 }
 
+int WxUiBackend::open_files(const std::vector<std::string>& paths) {
+    return run_on_gui(m_gui_timeout_ms, [&]() -> int {
+        Plater* plater = wxGetApp().plater();
+        if (plater == nullptr)
+            throw AutomationError(kErrLoadFailed, "no plater to load into");
+        // Default strategy matches drag-drop / Plater::load_files's own default: it
+        // routes .3mf as a project and meshes as models based on file content, so no
+        // as_project flag is needed in v1. ask_multi=false: never prompt.
+        const LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig;
+        std::vector<size_t> loaded;
+        try {
+            loaded = plater->load_files(paths, strategy, /*ask_multi=*/false);
+        } catch (const std::exception& e) {
+            throw AutomationError(kErrLoadFailed,
+                                  std::string("load_files failed: ") + e.what());
+        }
+        if (loaded.empty())
+            throw AutomationError(kErrLoadFailed, "load_files loaded nothing");
+        return static_cast<int>(loaded.size());
+    });
+}
+
 }}} // namespace Slic3r::GUI::Automation
