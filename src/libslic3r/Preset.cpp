@@ -3481,6 +3481,7 @@ static std::vector<std::string> s_PhysicalPrinter_opts {
     "print_host",
     "print_host_webui",
     "printhost_apikey",
+    "flashforge_serial_number",
     "printhost_cafile",
     "printhost_port",
     "printhost_authorization_type",
