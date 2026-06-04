@@ -18,6 +18,7 @@
 #include "WipeTowerDialog.hpp"           // RammingDialog
 #include "MsgDialog.hpp"                 // InfoDialog
 #include "libslic3r/GCode/Thumbnails.hpp"
+#include "format.hpp"
 
 namespace Slic3r { namespace GUI {
 

@@ -326,8 +326,6 @@ modules:
   - name: OrcaSlicer
     buildsystem: simple
     build-commands:
-      - pip3 install grpcio-tools -q
-      - python3 tools/run_codegen.py
       - |
         cmake . -B build_flatpak \
           -DFLATPAK=ON \
