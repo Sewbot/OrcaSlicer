@@ -57,6 +57,15 @@ if "%1"=="deps" exit /b 0
 :slicer
 echo "building Orca Slicer..."
 cd %WP%
+
+echo "generating config sources from proto..."
+pip install grpcio-tools -q
+python tools/run_codegen.py
+if errorlevel 1 (
+    echo "ERROR: config codegen failed"
+    exit /b 1
+)
+
 mkdir %build_dir%
 cd %build_dir%
 

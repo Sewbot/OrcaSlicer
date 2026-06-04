@@ -872,6 +872,11 @@ function(orcaslicer_copy_dlls target config postfix output_dlls)
 endfunction()
 
 
+# Config codegen — generates src/slic3r/GUI/generated/*.cpp from src/PrintConfigs/*.proto.
+# Must run before compiling libslic3r (PrintConfig.cpp #includes the generated files).
+# Requires: pip install grpcio-tools  OR  standalone protoc in PATH.
+include(cmake/modules/ConfigCodegen.cmake)
+
 # libslic3r, OrcaSlicer GUI and the OrcaSlicer executable.
 add_subdirectory(deps_src)
 add_subdirectory(src)

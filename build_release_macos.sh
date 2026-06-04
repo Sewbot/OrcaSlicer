@@ -180,6 +180,10 @@ function pack_deps() {
 }
 
 function build_slicer() {
+    echo "Generating config sources from proto..."
+    pip3 install grpcio-tools -q
+    python3 tools/run_codegen.py || { echo "ERROR: config codegen failed"; exit 1; }
+
     # iterate over two architectures: x86_64 and arm64
     for _ARCH in x86_64 arm64; do
         # if ARCH is universal or equal to _ARCH

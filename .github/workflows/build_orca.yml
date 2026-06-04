@@ -50,6 +50,20 @@ jobs:
           useLocalCache: true         # <--= Use the local cache (default is 'false').
           useCloudCache: true
 
+      - name: Install codegen tools and generate config sources
+        run: |
+          pip install grpcio-tools
+          python tools/run_codegen.py
+        if: runner.os == 'Windows'
+        shell: pwsh
+
+      - name: Install codegen tools and generate config sources
+        run: |
+          pip3 install grpcio-tools
+          python3 tools/run_codegen.py
+        if: runner.os != 'Windows'
+        shell: bash
+
       - name: Get the version and date on Ubuntu and macOS
         if: runner.os != 'Windows'
         run: |

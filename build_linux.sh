@@ -545,6 +545,10 @@ if [[ -n "${BUILD_ORCA}" ]] || [[ -n "${BUILD_TESTS}" ]] ; then
         BUILD_ARGS+=(-DORCA_UPDATER_SIG_KEY="${ORCA_UPDATER_SIG_KEY}")
     fi
 
+    echo "Generating config sources from proto..."
+    pip install grpcio-tools -q
+    python3 tools/run_codegen.py || { echo "ERROR: config codegen failed"; exit 1; }
+
     print_and_run cmake -S . -B $BUILD_DIR "${CMAKE_C_CXX_COMPILER_CLANG[@]}" "${CMAKE_LLD_LINKER_ARGS[@]}" "${CMAKE_CCACHE_ARGS[@]}" -G "Ninja Multi-Config" \
 -DSLIC3R_PCH=${SLIC3R_PRECOMPILED_HEADERS} \
 -DORCA_TOOLS=ON \

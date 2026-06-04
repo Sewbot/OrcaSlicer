@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+﻿cmake_minimum_required(VERSION 3.13)
 project(libslic3r_gui)
 
 include(PrecompiledHeader)
@@ -460,6 +460,7 @@ set(SLIC3R_GUI_SOURCES
     GUI/TabButton.hpp
     GUI/Tab.cpp
     GUI/Tab.hpp
+    GUI/TabLayoutExtra.cpp
     GUI/TaskManager.cpp
     GUI/TaskManager.hpp
     GUI/TextLines.cpp
