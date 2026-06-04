@@ -25,6 +25,7 @@ Outputs:
 
 import sys
 import os
+import re
 import argparse
 from pathlib import Path
 
@@ -369,7 +370,8 @@ class CodeGenerator:
             # Default value - reconstruct full C++ from co_type + default_value
             if field.has_default:
                 cpp_expr = self._reconstruct_default_cpp(
-                    field.default_value or "", field.co_type, field.enum_keys_map)
+                    field.default_value or "", field.co_type, field.enum_keys_map,
+                    field.is_nullable)
                 lines.append(f'    def->set_default_value({cpp_expr});')
 
             lines.append("")
@@ -454,7 +456,7 @@ class CodeGenerator:
         return "\n".join(lines)
 
     @staticmethod
-    def _reconstruct_default_cpp(default_value, co_type, enum_keys_map=None):
+    def _reconstruct_default_cpp(default_value, co_type, enum_keys_map=None, is_nullable=False):
         """Reconstruct full C++ default expression from co_type + extracted value args.
 
         Maps (co_type, args) -> 'new ConfigOptionXxx(args)' or 'new ConfigOptionXxx{args}'.
@@ -482,9 +484,9 @@ class CodeGenerator:
             "coPoints":           "ConfigOptionPoints",
         }
 
-        # Do NOT unescape \n → newline here; C++ string literals use \n as escape sequence.
-        # Only unescape escaped quotes so they appear correctly in the reconstructed expression.
-        args = default_value.replace('\\"', '"')
+        # Unescape escaped quotes, then re-escape actual newlines so they remain valid
+        # in C++ string literals (proto \n is parsed as actual newline by protobuf).
+        args = default_value.replace('\\"', '"').replace('\n', '\\n')
 
         # Empty args -> default constructor for any type
         if not args:
@@ -494,35 +496,58 @@ class CodeGenerator:
                     m = _re.match(r'ConfigOptionEnum<(\w+)>::', enum_keys_map)
                     if m:
                         enum_type = m.group(1)
+                    else:
+                        m2 = _re.match(r's_keys_map_(\w+)$', enum_keys_map)
+                        if m2:
+                            enum_type = m2.group(1)
                 return f"new ConfigOptionEnum<{enum_type}>()"
             if co_type == "coEnums":
-                return "new ConfigOptionEnumsGeneric{}"
+                cls = "ConfigOptionEnumsGenericNullable" if is_nullable else "ConfigOptionEnumsGeneric"
+                return f"new {cls}{{}}"
+            NULLABLE_LIST_CLASS = {
+                "coFloats":    "ConfigOptionFloatsNullable",
+                "coInts":      "ConfigOptionIntsNullable",
+                "coBools":     "ConfigOptionBoolsNullable",
+                "coPercents":  "ConfigOptionPercentsNullable",
+            }
             all_classes = {**SCALAR_CLASS, **LIST_CLASS}
-            cls = all_classes.get(co_type, "ConfigOption")
+            if is_nullable and co_type in NULLABLE_LIST_CLASS:
+                cls = NULLABLE_LIST_CLASS[co_type]
+            else:
+                cls = all_classes.get(co_type, "ConfigOption")
             return f"new {cls}()"
 
         if co_type in SCALAR_CLASS:
             return f"new {SCALAR_CLASS[co_type]}({args})"
 
         if co_type in LIST_CLASS:
-            return f"new {LIST_CLASS[co_type]}{{{args}}}"
+            NULLABLE_LIST_CLASS = {
+                "coFloats":    "ConfigOptionFloatsNullable",
+                "coInts":      "ConfigOptionIntsNullable",
+                "coBools":     "ConfigOptionBoolsNullable",
+                "coPercents":  "ConfigOptionPercentsNullable",
+            }
+            cls = NULLABLE_LIST_CLASS[co_type] if (is_nullable and co_type in NULLABLE_LIST_CLASS) else LIST_CLASS[co_type]
+            return f"new {cls}{{{args}}}"
 
         if co_type == "coEnum":
-            # Extract enum type from enum_keys_map, e.g.
-            # "ConfigOptionEnum<BedType>::get_enum_values()" -> "BedType"
+            # Extract enum type from two possible enum_keys_map formats:
+            #   "ConfigOptionEnum<BedType>::get_enum_values()" -> "BedType"
+            #   "s_keys_map_BedType" -> "BedType"
             enum_type = "int"
             if enum_keys_map:
                 m = _re.match(r'ConfigOptionEnum<(\w+)>::', enum_keys_map)
                 if m:
                     enum_type = m.group(1)
+                else:
+                    m2 = _re.match(r's_keys_map_(\w+)$', enum_keys_map)
+                    if m2:
+                        enum_type = m2.group(1)
             return f"new ConfigOptionEnum<{enum_type}>({args})"
 
         if co_type == "coEnums":
-            # List-of-enum: use ConfigOptionEnumsGenericNullable if nullable,
-            # otherwise ConfigOptionEnumsGeneric.
-            # We don't have is_nullable here, so always emit Generic; caller
-            # can override when is_nullable is set.
-            return f"new ConfigOptionEnumsGeneric{{ {args} }}"
+            cls = "ConfigOptionEnumsGenericNullable" if is_nullable else "ConfigOptionEnumsGeneric"
+            return f"new {cls}{{ {args} }}"
 
         # Fallback: try generic
         return f"new ConfigOption({args})"
@@ -551,6 +576,236 @@ class CodeGenerator:
         if isinstance(val, float) and val == int(val):
             return str(int(val))
         return str(val)
+
+
+def _group_name_to_hook(name):
+    """Convert group name to a C++ hook method suffix: 'Cooling Fan' -> 'cooling_fan'."""
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+
+def _extract_field_paths(tab_layout_cpp):
+    """
+    Read existing TabLayout_generated.cpp to build a field -> doc-path lookup.
+    Used as a bootstrap so the yaml doesn't need to repeat every path.
+    Returns dict: field_key -> path_string
+    """
+    mapping = {}
+    if not Path(tab_layout_cpp).exists():
+        return mapping
+    with open(tab_layout_cpp, 'r', encoding='utf-8', errors='replace') as f:
+        content = f.read()
+    for key, path in re.findall(
+            r'append_single_option_line\("([^"]+)",\s*"([^"]+)"\)', content):
+        mapping[key] = path
+    return mapping
+
+
+def generate_tab_layout(layout_yaml_path, output_path, existing_cpp_path=None):
+    """
+    Generate TabLayout_generated.cpp from layout.yaml.
+
+    YAML group fields can be:
+      - key                      string  → append_single_option_line(key, <lookup>)
+      - {key: "path"}            dict    → append_single_option_line(key, "path")
+      - [k1, k2, ...]            list    → multi-option Line
+      - _separator_              string  → optgroup->append_separator()
+
+    Group attributes:
+      hook: true    → tab.layout_hook_<name>(optgroup.get())  (no field generation)
+      gcode: true   → validate_custom_gcode_cb + edit_custom_gcode lambdas + gcode fields
+      icon: "..."   → second arg to new_optgroup()
+    """
+    try:
+        import yaml
+    except ImportError:
+        print("  ERROR: PyYAML not installed. Run: pip install pyyaml")
+        return False
+
+    with open(layout_yaml_path, 'r', encoding='utf-8') as f:
+        layout = yaml.safe_load(f)
+
+    # Bootstrap: extract existing field→path mappings so yaml doesn't need them all
+    path_map = _extract_field_paths(existing_cpp_path) if existing_cpp_path else {}
+
+    lines = [
+        "// ===== AUTO-GENERATED by tools/config_codegen.py from layout.yaml =====",
+        "// DO NOT EDIT MANUALLY. Edit layout.yaml and re-run: python tools/run_codegen.py",
+        "//",
+        "// Included inside namespace Slic3r::GUI in Tab.cpp after validate_custom_gcode_cb",
+        "// forward declaration. No namespace wrapper needed here.",
+        "",
+        "namespace { constexpr int gcode_field_height = 15; }",
+        "namespace { constexpr int notes_field_height = 25; }",
+        "",
+    ]
+
+    for tab in layout.get('tabs', []):
+        tab_name = tab['name']  # e.g. TabPrint, TabFilament, TabPrinter
+        pages = tab.get('pages', [])
+        if not pages:
+            continue
+
+        # One inline function per page (or per tab if single page makes sense)
+        # Convention: TabPrint_build_layout, TabFilament_build_main_layout,
+        #             TabPrinter_build_basic_info_layout, TabPrinter_build_gcode_layout, etc.
+        for page in pages:
+            page_name = page['name']
+            page_icon = page.get('icon', '')
+            # Derive function name: TabPrint/"Quality" → TabPrint_build_quality_layout
+            fn_suffix = _group_name_to_hook(page_name)
+            fn_name = f"{tab_name}_build_{fn_suffix}_layout"
+
+            lines.append(f"inline void {fn_name}({tab_name}& tab)")
+            lines.append("{")
+            lines.append(f"    PageShp page = tab.add_options_page(L(\"{page_name}\"), \"{page_icon}\");")
+
+            for group in page.get('groups', []):
+                gname     = group['name']
+                gicon     = group.get('icon', '')
+                is_hook   = group.get('hook', False)
+                is_gcode  = group.get('gcode', False)
+                fields    = group.get('fields', [])
+                indent_n  = group.get('indent', 15)
+
+                icon_arg = f', L"{gicon}"' if gicon else ''
+                indent_arg = f', {indent_n}' if (is_gcode and indent_n != 15) else ''
+                if is_gcode:
+                    icon_arg = f', L"{gicon}"' if gicon else ', L"param_gcode"'
+                    indent_arg = ', 0'
+
+                lines.append("    {")
+                lines.append(f"        auto optgroup = page->new_optgroup(L(\"{gname}\"){icon_arg}{indent_arg});")
+
+                if is_hook:
+                    hook_method = f"layout_hook_{_group_name_to_hook(gname)}"
+                    lines.append(f"        tab.{hook_method}(optgroup.get());")
+
+                elif is_gcode:
+                    # Standard g-code group: validate callback + edit button + gcode fields
+                    lines.append("        optgroup->m_on_change = [&tab, &optgroup_title = optgroup->title](const t_config_option_key& opt_key, const boost::any& value) {")
+                    lines.append("            validate_custom_gcode_cb(&tab, optgroup_title, opt_key, value);")
+                    lines.append("        };")
+                    lines.append("        optgroup->edit_custom_gcode = [&tab](const t_config_option_key& opt_key) { tab.edit_custom_gcode(opt_key); };")
+                    for field in fields:
+                        key, path = _resolve_field(field, path_map)
+                        if key:
+                            path_arg = f', "{path}"' if path else ''
+                            lines.append("        {")
+                            lines.append(f"            Option option = optgroup->get_option(\"{key}\");")
+                            lines.append("            option.opt.full_width = true;")
+                            lines.append("            option.opt.is_code = true;")
+                            lines.append("            option.opt.height = gcode_field_height;")
+                            lines.append(f"            optgroup->append_single_option_line(option{path_arg});")
+                            lines.append("        }")
+
+                else:
+                    # Regular group: generate append_single_option_line / multi-option line
+                    for field in fields:
+                        if isinstance(field, list):
+                            # Multi-option line: [key1, key2, ...]
+                            lines.append("        {")
+                            first = field[0]
+                            lines.append(f"            Line line_{{optgroup->get_option(\"{first}\").opt.label, optgroup->get_option(\"{first}\").opt.tooltip}};")
+                            for k in field:
+                                lines.append(f"            line_.append_option(optgroup->get_option(\"{k}\"));")
+                            lines.append("            optgroup->append_line(line_);")
+                            lines.append("        }")
+                        elif isinstance(field, str):
+                            if field == '_separator_':
+                                lines.append("        optgroup->append_separator();")
+                            else:
+                                path = path_map.get(field, '')
+                                path_arg = f', "{path}"' if path else ''
+                                lines.append(f"        optgroup->append_single_option_line(\"{field}\"{path_arg});")
+                        elif isinstance(field, dict):
+                            # {key: path} explicit path
+                            for key, path in field.items():
+                                path_arg = f', "{path}"' if path else ''
+                                lines.append(f"        optgroup->append_single_option_line(\"{key}\"{path_arg});")
+
+                lines.append("    }")
+
+            lines.append("}")
+            lines.append("")
+
+    # Add backward-compatible wrapper functions that aggregate per-page functions
+    # so Tab.cpp can call e.g. TabPrint_build_layout(*this) as before.
+    wrappers = _build_wrappers(layout)
+    lines.extend(wrappers)
+
+    content = "\n".join(lines) + "\n"
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print(f"Generated: {output_path}")
+    return True
+
+
+def _build_wrappers(layout):
+    """Generate aggregate wrapper functions for backward compatibility with Tab.cpp."""
+    lines = ["// ── Aggregate wrappers (backward-compatible with Tab.cpp call sites) ──", ""]
+
+    # Known wrappers: map from legacy function name → (tab_type, [page_names_to_include])
+    # The tab_name and page_names determine which per-page functions get called.
+    wrapper_specs = {
+        "TabPrint":    ("TabPrint_build_layout",            None),   # all pages
+        "TabFilament": ("TabFilament_build_main_layout",    ["Filament", "Cooling", "Multimaterial"]),
+    }
+
+    for tab in layout.get('tabs', []):
+        tab_name = tab['name']
+        pages = tab.get('pages', [])
+
+        if tab_name == "TabPrinter":
+            # Per-page wrappers for printer tab
+            basic_info = [p for p in pages if p['name'] == "Basic information"]
+            gcode_pages = [p for p in pages if p['name'] in ("Machine G-code", "Notes")]
+
+            if basic_info:
+                fn = f"TabPrinter_build_basic_info_layout"
+                lines.append(f"inline void {fn}(TabPrinter& tab)")
+                lines.append("{")
+                for p in basic_info:
+                    pf = f"TabPrinter_build_{_group_name_to_hook(p['name'])}_layout"
+                    lines.append(f"    {pf}(tab);")
+                lines.append("}")
+                lines.append("")
+
+            if gcode_pages:
+                fn = "TabPrinter_build_gcode_layout"
+                lines.append(f"inline void {fn}(TabPrinter& tab)")
+                lines.append("{")
+                for p in gcode_pages:
+                    pf = f"TabPrinter_build_{_group_name_to_hook(p['name'])}_layout"
+                    lines.append(f"    {pf}(tab);")
+                lines.append("}")
+                lines.append("")
+
+        elif tab_name in wrapper_specs:
+            legacy_fn, page_filter = wrapper_specs[tab_name]
+            filtered = [p for p in pages if page_filter is None or p['name'] in page_filter]
+            if not filtered:
+                continue
+            lines.append(f"inline void {legacy_fn}({tab_name}& tab)")
+            lines.append("{")
+            for p in filtered:
+                pf = f"{tab_name}_build_{_group_name_to_hook(p['name'])}_layout"
+                lines.append(f"    {pf}(tab);")
+            lines.append("}")
+            lines.append("")
+
+    return lines
+
+
+def _resolve_field(field, path_map):
+    """Return (key, path) from a field entry in various yaml formats."""
+    if isinstance(field, str):
+        return field, path_map.get(field, '')
+    elif isinstance(field, dict):
+        for k, v in field.items():
+            return k, (v or path_map.get(k, ''))
+    return None, ''
 
 
 def main():
@@ -599,6 +854,18 @@ def main():
         print(f"Generated: {out_path}")
 
     print(f"\nDone. {len(gen.fields)} settings processed.")
+
+    # Generate tab layout from layout.yaml
+    layout_yaml = desc_path.parent.parent / "src" / "PrintConfigs" / "layout.yaml"
+    if not layout_yaml.exists():
+        # Try repo root relative path
+        layout_yaml = Path(__file__).resolve().parent.parent / "src" / "PrintConfigs" / "layout.yaml"
+    if layout_yaml.exists():
+        tab_layout_out = output_dir / "TabLayout_generated.cpp"
+        existing = tab_layout_out if tab_layout_out.exists() else None
+        generate_tab_layout(str(layout_yaml), str(tab_layout_out), str(existing) if existing else None)
+    else:
+        print(f"  NOTE: layout.yaml not found at {layout_yaml}, skipping tab layout generation")
 
 
 if __name__ == "__main__":
