@@ -272,7 +272,7 @@
 	"tree_support_branch_distance": "5",
 	"tree_support_branch_distance_organic": "1",
 	"tree_support_brim_width": "3",
-	"tree_support_tip_diameter": "0.8",
+	"tree_support_tip_diameter": "0.9",
 	"tree_support_top_rate": "30%",
 	"tree_support_wall_count": "2",
 	"wall_direction": "auto",
